@@ -851,6 +851,8 @@
   "MessageNoDownloadsInProgress": "Geen downloads bezig op dit moment",
   "MessageNoDownloadsQueued": "Geen downloads in de wachtrij",
   "MessageNoEpisodeMatchesFound": "Geen afleveringsmatches gevonden",
+  "MessageSomePodcastFeedsUnavailable": "Sommige podcastfeeds konden niet worden geladen. Gedownloade afleveringen blijven zichtbaar.",
+  "MessageEpisodeNotDownloaded": "Nog niet gedownload",
   "MessageNoEpisodes": "Geen afleveringen",
   "MessageNoFoldersAvailable": "Geen mappen beschikbaar",
   "MessageNoGenres": "Geen genres",

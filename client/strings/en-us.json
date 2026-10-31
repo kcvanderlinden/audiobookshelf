@@ -851,6 +851,8 @@
   "MessageNoDownloadsInProgress": "No downloads currently in progress",
   "MessageNoDownloadsQueued": "No downloads queued",
   "MessageNoEpisodeMatchesFound": "No episode matches found",
+  "MessageSomePodcastFeedsUnavailable": "Some podcast feeds could not be loaded. Downloaded episodes are still shown.",
+  "MessageEpisodeNotDownloaded": "Not downloaded",
   "MessageNoEpisodes": "No Episodes",
   "MessageNoFoldersAvailable": "No Folders Available",
   "MessageNoGenres": "No Genres",

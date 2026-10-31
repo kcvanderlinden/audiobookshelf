@@ -351,9 +351,10 @@ module.exports.parsePodcastRssFeedXml = async (xml, excludeEpisodeMetadata = fal
  *
  * @param {string} feedUrl
  * @param {boolean} [excludeEpisodeMetadata=false]
+ * @param {number} [timeout=global.PodcastDownloadTimeout]
  * @returns {Promise<RssPodcast|null>}
  */
-module.exports.getPodcastFeed = (feedUrl, excludeEpisodeMetadata = false) => {
+module.exports.getPodcastFeed = (feedUrl, excludeEpisodeMetadata = false, timeout = global.PodcastDownloadTimeout) => {
   Logger.debug(`[podcastUtils] getPodcastFeed for "${feedUrl}"`)
 
   let userAgent = 'audiobookshelf (+https://audiobookshelf.org; like iTMS)'
@@ -366,7 +367,7 @@ module.exports.getPodcastFeed = (feedUrl, excludeEpisodeMetadata = false) => {
   return axios({
     url: feedUrl,
     method: 'GET',
-    timeout: global.PodcastDownloadTimeout,
+    timeout,
     responseType: 'arraybuffer',
     headers: {
       Accept: 'application/rss+xml, application/xhtml+xml, application/xml, */*;q=0.8',
@@ -407,7 +408,7 @@ module.exports.getPodcastFeed = (feedUrl, excludeEpisodeMetadata = false) => {
         if (feedUrl.startsWith('http://') && error.request._options.protocol === 'https:') {
           Logger.info('Redirection from http to https detected. Upgrading Request', error.request._options.href)
           feedUrl = feedUrl.replace('http://', 'https://')
-          return this.getPodcastFeed(feedUrl, excludeEpisodeMetadata)
+          return this.getPodcastFeed(feedUrl, excludeEpisodeMetadata, timeout)
         }
       }
       Logger.error('[podcastUtils] getPodcastFeed Error', error)

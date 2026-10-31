@@ -22,6 +22,7 @@ const RssFeedManager = require('../managers/RssFeedManager')
 
 const libraryFilters = require('../utils/queries/libraryFilters')
 const libraryItemsPodcastFilters = require('../utils/queries/libraryItemsPodcastFilters')
+const getRecentPodcastEpisodes = require('../utils/recentPodcastEpisodes')
 const authorFilters = require('../utils/queries/authorFilters')
 const zipHelpers = require('../utils/zipHelpers')
 
@@ -1283,6 +1284,14 @@ class LibraryController {
   async getRecentEpisodes(req, res) {
     if (req.library.mediaType !== 'podcast') {
       return res.sendStatus(404)
+    }
+
+    // Opt in so existing API clients keep receiving only playable local episodes.
+    if (req.query.include === 'feed') {
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50))
+      const page = Math.max(0, parseInt(req.query.page, 10) || 0)
+      const result = await getRecentPodcastEpisodes(req.user, req.library, limit, page * limit)
+      return res.json({ ...result, limit, page })
     }
 
     const payload = {
