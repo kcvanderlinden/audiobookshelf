@@ -5,6 +5,7 @@
     <div id="bookshelf" class="w-full overflow-y-auto px-2 py-6 sm:px-4 md:p-12 relative">
       <div class="w-full max-w-3xl mx-auto py-4">
         <p class="text-xl mb-2 font-semibold px-4 md:px-0">{{ $strings.HeaderLatestEpisodes }}</p>
+        <p v-if="failedFeeds.length" role="status" class="text-warning px-4 md:px-0 mb-2">{{ $strings.MessageSomePodcastFeedsUnavailable }}</p>
         <p v-if="!recentEpisodes.length && !processing" class="text-center text-xl">{{ $strings.MessageNoEpisodes }}</p>
         <template v-for="(episode, index) in episodesMapped">
           <div :key="episode.id" class="flex py-5 cursor-pointer relative" @click.stop="clickEpisode(episode)">
@@ -48,21 +49,27 @@
               <p dir="auto" class="text-sm text-gray-200 mb-4 line-clamp-4" v-html="episode.subtitle || episode.description" />
 
               <div class="flex items-center">
-                <button class="h-8 px-4 border border-white/20 hover:bg-white/10 rounded-full flex items-center justify-center cursor-pointer focus:outline-hidden" :class="episode.progress?.isFinished ? 'text-white/40' : ''" @click.stop="playClick(episode)">
+                <button v-if="episode.isDownloaded" class="h-8 px-4 border border-white/20 hover:bg-white/10 rounded-full flex items-center justify-center cursor-pointer focus:outline-hidden" :class="episode.progress?.isFinished ? 'text-white/40' : ''" @click.stop="playClick(episode)">
                   <span v-if="episodeIdStreaming === episode.id" class="material-symbols text-2xl" :class="streamIsPlaying ? '' : 'text-success'">{{ streamIsPlaying ? 'pause' : 'play_arrow' }}</span>
                   <span v-else class="material-symbols fill text-2xl text-success">play_arrow</span>
                   <p class="pl-2 pr-1 text-sm font-semibold">{{ getButtonText(episode) }}</p>
                 </button>
 
-                <ui-tooltip v-if="libraryItemIdStreaming && !isStreamingFromDifferentLibrary" :text="playerQueueEpisodeIdMap[episode.id] ? $strings.MessageRemoveFromPlayerQueue : $strings.MessageAddToPlayerQueue" :class="playerQueueEpisodeIdMap[episode.id] ? 'text-success' : ''" direction="top">
+                <button v-else-if="canDownloadEpisodes" :disabled="episodesProcessingMap[episode.id] || isEpisodeDownloading(episode)" class="h-8 px-4 border border-white/20 hover:bg-white/10 rounded-full flex items-center justify-center disabled:opacity-50" @click.stop="downloadEpisode(episode)">
+                  <span class="material-symbols text-xl mr-2">download</span>
+                  <span class="text-sm">{{ episodesProcessingMap[episode.id] || isEpisodeDownloading(episode) ? $strings.MessageDownloadingEpisode : $strings.LabelDownload }}</span>
+                </button>
+                <p v-else class="text-sm text-gray-300">{{ $strings.MessageEpisodeNotDownloaded }}</p>
+
+                <ui-tooltip v-if="episode.isDownloaded && libraryItemIdStreaming && !isStreamingFromDifferentLibrary" :text="playerQueueEpisodeIdMap[episode.id] ? $strings.MessageRemoveFromPlayerQueue : $strings.MessageAddToPlayerQueue" :class="playerQueueEpisodeIdMap[episode.id] ? 'text-success' : ''" direction="top">
                   <ui-icon-btn :icon="playerQueueEpisodeIdMap[episode.id] ? 'playlist_add_check' : 'playlist_play'" borderless @click="queueBtnClick(episode)" />
                 </ui-tooltip>
 
-                <ui-tooltip :text="!!episode.progress?.isFinished ? $strings.MessageMarkAsNotFinished : $strings.MessageMarkAsFinished" direction="top">
+                <ui-tooltip v-if="episode.isDownloaded" :text="!!episode.progress?.isFinished ? $strings.MessageMarkAsNotFinished : $strings.MessageMarkAsFinished" direction="top">
                   <ui-read-icon-btn :disabled="episodesProcessingMap[episode.id]" :is-read="!!episode.progress?.isFinished" borderless class="mx-1 mt-0.5" @click="toggleEpisodeFinished(episode)" />
                 </ui-tooltip>
 
-                <ui-tooltip :text="$strings.LabelYourPlaylists" direction="top">
+                <ui-tooltip v-if="episode.isDownloaded" :text="$strings.LabelYourPlaylists" direction="top">
                   <ui-icon-btn icon="playlist_add" borderless @click="clickAddToPlaylist(episode)" />
                 </ui-tooltip>
               </div>
@@ -70,8 +77,10 @@
 
             <div v-if="episode.progress" class="absolute bottom-0 left-0 h-0.5 pointer-events-none bg-warning" :style="{ width: episode.progress.progress * 100 + '%' }" />
           </div>
-          <div :key="index" v-if="index !== recentEpisodes.length" class="w-full h-px bg-white/10" />
+          <div :key="index" v-if="index !== recentEpisodes.length - 1" class="w-full h-px bg-white/10" />
         </template>
+        <p v-if="processing" role="status" class="text-center py-4">{{ $strings.MessageLoading }}</p>
+        <ui-btn v-else-if="recentEpisodes.length < totalEpisodes" class="mt-4" @click="loadRecentEpisodes(currentPage + 1)">{{ $strings.LabelMore }}</ui-btn>
       </div>
     </div>
   </div>
@@ -100,6 +109,8 @@ export default {
     return {
       recentEpisodes: [],
       episodesProcessingMap: {},
+      downloads: [],
+      failedFeeds: [],
       totalEpisodes: 0,
       currentPage: 0,
       processing: false,
@@ -107,6 +118,9 @@ export default {
     }
   },
   computed: {
+    canDownloadEpisodes() {
+      return this.$store.getters['user/getIsAdminOrUp']
+    },
     bookCoverAspectRatio() {
       return this.$store.getters['libraries/getBookCoverAspectRatio']
     },
@@ -145,6 +159,30 @@ export default {
     }
   },
   methods: {
+    isEpisodeDownloading(episode) {
+      return this.downloads.some((download) => download.libraryItemId === episode.libraryItemId && ((episode.guid && download.guid === episode.guid) || download.url === episode.enclosure?.url))
+    },
+    async downloadEpisode(episode) {
+      if (!this.canDownloadEpisodes || this.episodesProcessingMap[episode.id] || this.isEpisodeDownloading(episode)) return
+      this.$set(this.episodesProcessingMap, episode.id, true)
+      try {
+        await this.$axios.$post(`/api/podcasts/${episode.libraryItemId}/download-episodes`, [episode.feedEpisode])
+        await this.loadDownloads()
+      } catch (error) {
+        this.$toast.error(error.response?.data || this.$strings.ToastFailedToLoadData)
+      } finally {
+        this.$set(this.episodesProcessingMap, episode.id, false)
+      }
+    },
+    async loadDownloads() {
+      const payload = await this.$axios.$get(`/api/libraries/${this.libraryId}/episode-downloads`).catch(() => null)
+      if (payload) this.downloads = [...(payload.queue || []), ...(payload.currentDownload ? [payload.currentDownload] : [])]
+    },
+    async episodeDownloadFinished(download) {
+      if (download.libraryId !== this.libraryId) return
+      await this.loadDownloads()
+      await this.loadRecentEpisodes()
+    },
     async toggleEpisodeFinished(episode, confirmed = false) {
       if (this.episodesProcessingMap[episode.id]) {
         console.warn('Episode is already processing')
@@ -193,6 +231,7 @@ export default {
       this.$store.commit('globals/setShowPlaylistsModal', true)
     },
     async clickEpisode(episode) {
+      if (!episode.isDownloaded) return this.$router.push(`/item/${episode.libraryItemId}`)
       if (this.openingItem) return
       this.openingItem = true
       const fullLibraryItem = await this.$axios.$get(`/api/items/${episode.libraryItemId}`).catch((error) => {
@@ -227,7 +266,7 @@ export default {
       const indexFromBack = this.episodesMapped.length - episodeIndex - 1
       for (let i = this.episodesMapped.length - 1 - indexFromBack; i >= 0; i--) {
         const episode = this.episodesMapped[i]
-        if (!episode.progress || !episode.isFinished) {
+        if (episode.isDownloaded && !episode.progress?.isFinished) {
           queueItems.push({
             libraryItemId: episode.libraryItemId,
             libraryId: episode.libraryId,
@@ -248,14 +287,17 @@ export default {
       })
     },
     async loadRecentEpisodes(page = 0) {
+      if (this.processing) return
       this.processing = true
-      const episodePayload = await this.$axios.$get(`/api/libraries/${this.libraryId}/recent-episodes?limit=50&page=${page}`).catch((error) => {
+      const episodePayload = await this.$axios.$get(`/api/libraries/${this.libraryId}/recent-episodes?include=feed&limit=50&page=${page}`).catch((error) => {
         console.error('Failed to get recent episodes', error)
         this.$toast.error(this.$strings.ToastFailedToLoadData)
         return null
       })
       this.processing = false
-      this.recentEpisodes = episodePayload.episodes || []
+      if (!episodePayload) return
+      this.recentEpisodes = page ? [...this.recentEpisodes, ...(episodePayload.episodes || [])].filter((episode, index, episodes) => episodes.findIndex((other) => other.id === episode.id) === index) : episodePayload.episodes || []
+      this.failedFeeds = episodePayload.failedFeeds || []
       this.totalEpisodes = episodePayload.total
       this.currentPage = page
     },
@@ -281,6 +323,15 @@ export default {
   },
   mounted() {
     this.loadRecentEpisodes()
+    this.loadDownloads()
+    this.$root.socket?.on('episode_download_queued', this.loadDownloads)
+    this.$root.socket?.on('episode_download_started', this.loadDownloads)
+    this.$root.socket?.on('episode_download_finished', this.episodeDownloadFinished)
+  },
+  beforeDestroy() {
+    this.$root.socket?.off('episode_download_queued', this.loadDownloads)
+    this.$root.socket?.off('episode_download_started', this.loadDownloads)
+    this.$root.socket?.off('episode_download_finished', this.episodeDownloadFinished)
   }
 }
 </script>
